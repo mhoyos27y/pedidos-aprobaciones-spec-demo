@@ -40,6 +40,16 @@ Decisiones del registro aplicadas sin pregunta (coinciden con la spec o la compl
 - D25: la feature es solo el servicio; la interfaz de usuario es otra feature (Fuera de alcance).
 - D27: bandeja y listas vacías se devuelven como lista vacía; el texto lo muestra el cliente.
 
+Decisiones de la revisión de `checklists/flujo-aprobacion.md` (2026-11-17):
+
+- Q: ¿Qué facultades tiene el Administrador en esta feature? → A: Ninguna; queda fuera de los roles de esta feature (CHK006, CHK021).
+- Q: ¿Qué pasa si el aprobador asignado deja de estar disponible? → A: Limitación conocida: el pedido queda pendiente hasta resolverse fuera del sistema; la reasignación sigue fuera de alcance (CHK007).
+- Q: ¿La descripción de la línea se mide sin espacios iniciales ni finales? → A: Sí, con la misma regla que motivos y comentarios (CHK014).
+- Q: ¿Qué es una solicitud de registro repetida? → A: Un reintento con el mismo identificador de solicitud; dos registros con datos iguales e identificadores distintos son dos pedidos (CHK015).
+- Q: ¿Qué guarda el historial de una modificación? → A: Las líneas y el monto total antes y después del cambio (CHK004).
+- Q: ¿Con qué volumen se mide "mis pedidos"? → A: Con un Solicitante que tiene 500 de los 10 000 pedidos (CHK017).
+- Q: ¿Puede el aprobador asignado ver el historial de los pedidos de su bandeja? → A: Sí, para que el Gerente vea la decisión y el comentario del Jefe.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Registrar y enviar un pedido (Priority: P1)
@@ -170,6 +180,9 @@ en la bandeja del Gerente.
 8. **Dado** un usuario con roles Jefe y Gerente que tiene pedidos asignados en ambos niveles,
    **Cuando** consulta su bandeja, **Entonces** ve una sola bandeja con ambos niveles, ordenada
    por fecha de envío e indicando el nivel de cada pedido.
+9. **Dado** un pedido de monto alto aprobado por el Jefe y pendiente de Gerente, **Cuando** un
+   usuario que solo tiene rol Jefe intenta aprobarlo, **Entonces** el sistema lo impide, porque
+   el nivel Gerente solo lo aprueba el Gerente asignado (RN-07).
 
 ---
 
@@ -193,7 +206,8 @@ quedan CANCELADO y el segundo desaparece de la bandeja del aprobador.
 2. **Dado** un pedido de monto alto ya aprobado por el Jefe y pendiente de Gerente, **Cuando** el
    Solicitante lo anula con motivo válido, **Entonces** el pedido pasa a CANCELADO.
 3. **Dado** un pedido propio en EN_APROBACION, **Cuando** el Solicitante intenta anularlo sin
-   motivo o con un motivo fuera de rango, **Entonces** el sistema lo impide (RN-09).
+   motivo, con solo espacios, con 9 caracteres o con 501, **Entonces** el sistema lo impide; con
+   10 o con 500 caracteres, la anulación se acepta (RN-09).
 4. **Dado** un pedido APROBADO, RECHAZADO o CANCELADO, **Cuando** el Solicitante intenta
    anularlo, **Entonces** el sistema lo impide.
 5. **Dado** un pedido de otro Solicitante, **Cuando** un Solicitante intenta anularlo,
@@ -248,8 +262,12 @@ de Gerente, el Auditor ve todos los eventos en orden cronológico con todos sus 
    estado destino y motivo o comentario (si lo hubo).
 2. **Dado** un Auditor, **Cuando** intenta registrar, modificar, aprobar o anular un pedido,
    **Entonces** el sistema lo impide (el rol solo consulta).
-3. **Dado** un usuario que no es Auditor ni el Solicitante del pedido, **Cuando** intenta ver
-   su historial, **Entonces** el sistema lo impide.
+3. **Dado** un usuario que no es Auditor, ni el Solicitante del pedido, ni su aprobador asignado
+   con el pedido pendiente en su bandeja, **Cuando** intenta ver su historial, **Entonces** el
+   sistema lo impide.
+4. **Dado** un pedido de monto alto aprobado por el Jefe con un comentario, **Cuando** el
+   Gerente asignado consulta su historial, **Entonces** ve la aprobación y el comentario del
+   Jefe.
 
 ---
 
@@ -279,8 +297,9 @@ stateDiagram-v2
   nivel, aunque tenga el rol de Jefe o Gerente (RN-06).
 - **Concurrencia**: dos decisiones simultáneas sobre el mismo pedido y nivel producen una sola
   decisión registrada (RN-10).
-- **Reintento de registro**: si la misma solicitud de registro llega repetida por error (p. ej.
-  reintento por fallo de conexión), se crea un único pedido.
+- **Reintento de registro**: si la misma solicitud de registro (mismo identificador de
+  solicitud) llega repetida, se crea un único pedido; dos registros con datos iguales e
+  identificadores distintos crean dos pedidos (FR-005).
 - **Rol insuficiente**: cualquier acción realizada por un usuario sin el rol requerido se
   rechaza y no deja cambios.
 - **Monto en el umbral**: un pedido de exactamente S/ 5 000.00 requiere solo Jefe; uno de
@@ -300,7 +319,10 @@ stateDiagram-v2
 - **Jefe directo sin rol Jefe**: si el superior inmediato no tiene rol Jefe (p. ej. es Gerente),
   se asigna el siguiente Jefe hacia arriba; un Gerente nunca aprueba el nivel Jefe (RN-07).
 - **Cambio de organigrama**: si la línea jerárquica del Solicitante cambia después del envío, el
-  pedido sigue asignado a los aprobadores determinados al enviarlo (RN-07).
+  pedido sigue asignado a los aprobadores determinados al enviarlo (RN-04).
+- **Aprobador asignado no disponible**: si el aprobador asignado se da de baja o pierde su rol,
+  el pedido queda pendiente; la resolución ocurre fuera del sistema (limitación conocida, ver
+  Assumptions).
 - **Listas vacías**: bandeja y "mis pedidos" sin resultados devuelven una lista vacía.
 
 ## Requirements *(mandatory)*
@@ -318,13 +340,16 @@ stateDiagram-v2
   pedido único y el Solicitante como creador.
 - **FR-004**: El sistema DEBE permitir al creador agregar, modificar y eliminar líneas solo
   mientras el pedido está en BORRADOR, manteniendo entre 1 y 50 líneas.
-- **FR-005**: El sistema DEBE evitar que una misma solicitud de registro repetida por error
-  genere más de un pedido.
+- **FR-005**: El sistema DEBE crear un único pedido cuando una solicitud de registro se
+  reintenta con el mismo identificador de solicitud; registros con identificadores distintos son
+  pedidos distintos, aunque sus datos coincidan.
 
 **Envío y ruta de aprobación**
 
 - **FR-006**: El sistema DEBE permitir al creador enviar un pedido en BORRADOR que cumpla las
-  reglas RN-01, RN-11, RN-12 y RN-13.
+  reglas RN-01, RN-11, RN-12 y RN-13. Estas reglas se evalúan antes de que el pedido salga de
+  BORRADOR: si alguna falla, el pedido sigue en BORRADOR, no pasa por ENVIADO y no se registra
+  envío en el historial.
 - **FR-007**: Al enviar, el sistema DEBE determinar la ruta de aprobación según el monto total
   (RN-05), asignar los aprobadores (RN-07) y dejar el pedido EN_APROBACION, pendiente del nivel
   Jefe.
@@ -341,6 +366,8 @@ stateDiagram-v2
 - **FR-012**: El sistema DEBE impedir que el creador de un pedido lo apruebe o rechace.
 - **FR-013**: El sistema DEBE permitir al creador anular su pedido en BORRADOR o EN_APROBACION,
   incluso después de la aprobación del Jefe.
+- **FR-019**: El sistema DEBE impedir que un Jefe o Gerente decida sobre un pedido que no le fue
+  asignado.
 
 **Consultas**
 
@@ -351,12 +378,11 @@ stateDiagram-v2
   pendientes que le fueron asignados en cualquiera de sus niveles (RN-07), excluyendo los creados
   por él mismo, ordenada por fecha de envío ascendente y con número, solicitante, fecha de envío,
   total y nivel de cada pedido.
-- **FR-019**: El sistema DEBE impedir que un Jefe o Gerente decida sobre un pedido que no le fue
-  asignado.
 - **FR-016**: El sistema DEBE permitir al Auditor consultar cualquier pedido y su historial
   completo, sin poder modificarlo ni ejecutar ninguna otra acción.
-- **FR-020**: El sistema DEBE permitir al Solicitante consultar el historial de sus propios
-  pedidos, y a nadie más que al Auditor consultar el historial de un pedido ajeno.
+- **FR-020**: El sistema DEBE permitir consultar el historial de un pedido solo a su
+  Solicitante, a su aprobador asignado mientras el pedido está pendiente en su bandeja y al
+  Auditor.
 - **FR-021**: El sistema DEBE mostrar el detalle de un pedido, con sus líneas, solo a su
   Solicitante, al Jefe o Gerente que lo tiene pendiente en su bandeja y al Auditor.
 
@@ -364,7 +390,8 @@ stateDiagram-v2
 
 - **FR-017**: El sistema DEBE registrar cada acción (registro, modificación, envío, aprobación,
   rechazo, anulación y cambio automático de estado) con actor, fecha y hora (UTC), estado origen,
-  estado destino y motivo o comentario cuando exista.
+  estado destino y motivo o comentario cuando exista. Para una modificación, el registro guarda
+  además las líneas y el monto total antes y después del cambio.
 - **FR-018**: El sistema NO DEBE permitir modificar ni eliminar registros del historial (RN-14).
 
 ### Reglas de negocio
@@ -372,7 +399,8 @@ stateDiagram-v2
 - **RN-01**: Un pedido tiene entre 1 y 50 líneas en todo momento.
 - **RN-02**: Solo un pedido en BORRADOR puede modificarse, y solo por su creador.
 - **RN-03**: Todos los montos están en soles (PEN), sin conversión; no se admiten otras monedas.
-- **RN-04**: El monto total que define la ruta de aprobación es el del momento del envío.
+- **RN-04**: La ruta de aprobación (RN-05) y los aprobadores asignados (RN-07) se fijan al
+  enviar el pedido y no se recalculan después, aunque cambie el organigrama.
 - **RN-05**: Un pedido requiere aprobación de Jefe; requiere además aprobación de Gerente si su
   monto total es mayor que S/ 5 000.00 ("monto alto"). Un total de hasta S/ 5 000.00 inclusive
   requiere solo Jefe. El umbral es fijo y solo cambia con una nueva versión de esta
@@ -382,8 +410,7 @@ stateDiagram-v2
 - **RN-07**: El aprobador de nivel Jefe es la primera persona con rol Jefe en la línea
   jerárquica ascendente del Solicitante, sin contarlo a él mismo. El aprobador de nivel Gerente
   es la primera persona con rol Gerente por encima de ese Jefe. Cada nivel solo lo aprueba su
-  rol: un Gerente nunca aprueba en lugar del Jefe. Los aprobadores se determinan al momento del
-  envío (igual que el monto, RN-04).
+  rol: un Gerente nunca aprueba en lugar del Jefe. Los aprobadores se fijan al enviar (RN-04).
 - **RN-08**: APROBADO, RECHAZADO y CANCELADO son estados finales: no admiten más acciones. Un
   pedido rechazado no se reabre; el Solicitante registra uno nuevo.
 - **RN-09**: Rechazar y anular requieren un motivo de 10 a 500 caracteres. Aprobar admite un
@@ -393,7 +420,8 @@ stateDiagram-v2
   estado ya cambiado se rechaza.
 - **RN-11**: Un pedido solo puede enviarse si el organigrama permite determinar todos los
   aprobadores de su ruta (RN-05, RN-07).
-- **RN-12**: Cada línea tiene una descripción de 3 a 200 caracteres, una cantidad entera de 1 a
+- **RN-12**: Cada línea tiene una descripción de 3 a 200 caracteres, medidos sin espacios
+  iniciales ni finales (solo espacios cuenta como vacía), una cantidad entera de 1 a
   9 999 y un precio unitario mayor que cero con hasta 2 decimales significativos. Los ceros
   finales no cuentan (10.500 = 10.50); un precio con cifras distintas de cero después del
   segundo decimal (10.555) se rechaza y nunca se redondea.
@@ -434,6 +462,7 @@ stateDiagram-v2
 | RN-09 | TEXTO_LONGITUD_INVALIDA | Motivo con menos de 10 o más de 500 caracteres, o comentario de más de 500 |
 | RN-11 | RUTA_APROBACION_INCOMPLETA | Se intenta enviar un pedido sin un Jefe en la línea jerárquica del Solicitante, o sin un Gerente por encima de ese Jefe cuando se requiere |
 | RN-10 | PEDIDO_MODIFICADO_CONCURRENTEMENTE | La acción se basó en un estado del pedido que ya cambió |
+| FR-016, Edge Cases (Rol insuficiente) | ROL_NO_AUTORIZADO | Un usuario sin el rol requerido intenta una acción (p. ej. un Auditor que intenta registrar, modificar, aprobar o anular) |
 
 ### Key Entities *(include if feature involves data)*
 
@@ -449,10 +478,10 @@ stateDiagram-v2
   al enviar, decisión (aprobado/rechazado), motivo (rechazo) o comentario (aprobación), fecha y
   hora (UTC).
 - **Registro de auditoría**: constancia inmutable y de conservación indefinida de cada acción
-  sobre un pedido: actor, fecha y hora (UTC), estado origen, estado destino, acción y motivo o
-  comentario.
-- **Usuario**: persona que actúa en el sistema con uno o más roles (Solicitante, Jefe, Gerente,
-  Auditor, Administrador) y que tiene un superior inmediato en el organigrama (salvo la cima).
+  sobre un pedido: actor, fecha y hora (UTC), estado origen, estado destino, acción, motivo o
+  comentario y, en las modificaciones, líneas y monto total antes y después.
+- **Usuario**: persona que actúa en el sistema con uno o más roles de esta feature (Solicitante,
+  Jefe, Gerente, Auditor) y que tiene un superior inmediato en el organigrama (salvo la cima).
 - **Organigrama**: relación superior inmediato → colaborador; define la línea jerárquica
   ascendente en la que se buscan el Jefe y el Gerente de cada pedido (RN-07).
 
@@ -476,7 +505,8 @@ stateDiagram-v2
   consulta, sin recurrir a otras fuentes.
 - **SC-008**: El 95 % de las consultas de bandeja y de "mis pedidos" responde en menos de
   1 segundo con 10 000 pedidos registrados en todos los estados; para la bandeja, 500 de ellos
-  están pendientes del aprobador que consulta (D10, D18, D20).
+  están pendientes del aprobador que consulta, y para "mis pedidos", 500 pertenecen al
+  Solicitante que consulta (D10, D18, D20).
 - **SC-009**: El 100 % de los registros o modificaciones que violan RN-01, RN-12 o RN-13 se
   rechaza sin alterar el pedido, incluidos los valores frontera (1/50 líneas, S/ 50 000.00 /
   S/ 50 000.01, 10.500 / 10.555).
@@ -484,13 +514,17 @@ stateDiagram-v2
 ## Assumptions
 
 - **Correspondencia con la constitución**: "anular" equivale al estado CANCELADO y "pendiente
-  de aprobación" a EN_APROBACION. ENVIADO es un estado de paso: al enviar, el sistema fija de
-  inmediato la ruta de aprobación y deja el pedido EN_APROBACION; ambos pasos quedan en el
-  historial.
+  de aprobación" a EN_APROBACION. ENVIADO es un estado de paso: al enviar un pedido que ya
+  superó las validaciones de FR-006, el sistema fija de inmediato la ruta de aprobación y deja el
+  pedido EN_APROBACION; ambos pasos quedan en el historial.
 - **Roles**: Jefe y Gerente son aprobadores de nivel 1 y nivel 2 (rol APROBADOR de la
   constitución). AUDITOR es un rol propio de solo consulta; su incorporación a la constitución
-  (enmienda MENOR del Principio VI) es una dependencia previa al plan. Un usuario puede tener
-  varios roles (p. ej. un Jefe también registra pedidos como Solicitante).
+  (enmienda MENOR del Principio VI) es una dependencia previa al plan. Si la enmienda no se
+  aprueba, el AUDITOR pasa a ser una facultad de solo consulta del ADMINISTRADOR, con los mismos
+  requisitos de esta spec. El Administrador no tiene facultades en esta feature. Un usuario puede
+  tener varios roles (p. ej. un Jefe también registra pedidos como Solicitante).
+- **Limitación conocida**: si el aprobador asignado se da de baja o pierde su rol, el pedido
+  queda pendiente hasta que se resuelva fuera del sistema; la reasignación está fuera de alcance.
 - **Montos**: todo en soles (PEN), con dos decimales; como la cantidad es entera y el precio
   tiene hasta dos decimales, subtotales y total son exactos y no requieren redondeo.
 - **Alcance del servicio**: la feature entrega solo el servicio; los textos para listas vacías
